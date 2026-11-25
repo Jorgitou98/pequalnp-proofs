@@ -62,13 +62,29 @@ jobs:
           }
           old=$(read_pr 10905 reduction/L-meta-4217)
           new=$(read_pr 11088 reduction/L-meta-4217-resubmit)
+          keep_corrected_original() {
+            local old_sha new_sha
+            old_sha=$(gh api "$pulls/10905" --jq .head.sha)
+            new_sha=$(gh api "$pulls/11088" --jq .head.sha)
+            [[ "$old_sha" == "$new_sha" ]] || return 1
+            gh api "$pulls/11088" --jq '{title,body,state:"open"}' |
+              gh api --method PATCH "$pulls/10905" --input - --jq '{number,state,title}'
+          }
+          if [[ "$new" == closed ]]; then
+            can_reopen=$(gh api graphql -f query='query { repository(owner:"open-goat",name:"pequalnp-proofs"){pullRequest(number:11088){viewerCanReopen}} }' --jq .data.repository.pullRequest.viewerCanReopen)
+            if [[ "$can_reopen" == false ]]; then
+              echo "GitHub reports that the authenticated user cannot reopen 11088."
+              keep_corrected_original
+              exit 0
+            fi
+          fi
           if [[ "$old" == open ]]; then
             gh api --method PATCH "$pulls/10905" -f state=closed --jq .state
           fi
           if [[ "$new" == closed ]]; then
-            if ! gh api --method PATCH "$pulls/11088" -f state=open --jq .state; then
+            if ! gh pr reopen 11088 --repo "$UPSTREAM"; then
               if [[ "$old" == open && "$(read_pr 11088 reduction/L-meta-4217-resubmit)" == closed ]]; then
-                gh api --method PATCH "$pulls/10905" -f state=open --jq .state
+                keep_corrected_original
               fi
               exit 1
             fi
