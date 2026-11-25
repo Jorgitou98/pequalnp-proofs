@@ -1,0 +1,77 @@
+name: Manage contribution PRs
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Operation on open-goat/pequalnp-proofs
+        type: choice
+        options:
+          - create
+          - replace-10905-with-11088
+        required: true
+      branch:
+        description: Branch in this fork (for create)
+        type: string
+      title:
+        description: PR title (for create)
+        type: string
+      description:
+        description: Contribution details and checks (for create)
+        type: string
+
+permissions: {}
+concurrency: fork-contribution-pr
+
+jobs:
+  manage:
+    if: github.repository == 'Jorgitou98/pequalnp-proofs' && github.actor == 'Jorgitou98' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Manage upstream PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PNP_GITHUB_TOKEN }}
+          OPERATION: ${{ inputs.operation }}
+          BRANCH: ${{ inputs.branch }}
+          TITLE: ${{ inputs.title }}
+          DETAILS: ${{ inputs.description }}
+          UPSTREAM: open-goat/pequalnp-proofs
+        run: |
+          set -euo pipefail
+          [[ "$(gh api user --jq .login)" == Jorgitou98 ]]
+          pulls="repos/$UPSTREAM/pulls"
+          if [[ "$OPERATION" == create ]]; then
+            [[ -n "$TITLE" && -n "$DETAILS" ]]
+            git check-ref-format "refs/heads/$BRANCH"
+            existing=$(gh api --method GET "$pulls" -f head="Jorgitou98:$BRANCH" -f base=main -f state=open --jq '.[0].html_url // empty')
+            if [[ -n "$existing" ]]; then
+              echo "$existing"
+              exit 0
+            fi
+            body=$(printf '%s\n\n**GitHub handle**: @Jorgitou98\n**LinkedIn profile**: https://www.linkedin.com/in/jorge-villarrubia-elvira/\n' "$DETAILS")
+            gh api --method POST "$pulls" -f head="Jorgitou98:$BRANCH" -f base=main -f title="$TITLE" -f body="$body" --jq .html_url
+            exit 0
+          fi
+
+          [[ "$OPERATION" == replace-10905-with-11088 ]]
+          read_pr() {
+            gh api "$pulls/$1" | jq -er --arg ref "$2" '
+              select(.user.login == "Jorgitou98" and .head.repo.full_name == "Jorgitou98/pequalnp-proofs"
+                and .head.ref == $ref and .base.ref == "main" and .merged == false) | .state'
+          }
+          old=$(read_pr 10905 reduction/L-meta-4217)
+          new=$(read_pr 11088 reduction/L-meta-4217-resubmit)
+          if [[ "$old" == open ]]; then
+            gh api --method PATCH "$pulls/10905" -f state=closed --jq .state
+          fi
+          if [[ "$new" == closed ]]; then
+            if ! gh api --method PATCH "$pulls/11088" -f state=open --jq .state; then
+              if [[ "$old" == open && "$(read_pr 11088 reduction/L-meta-4217-resubmit)" == closed ]]; then
+                gh api --method PATCH "$pulls/10905" -f state=open --jq .state
+              fi
+              exit 1
+            fi
+          fi
+          [[ "$(read_pr 10905 reduction/L-meta-4217)" == closed ]]
+          [[ "$(read_pr 11088 reduction/L-meta-4217-resubmit)" == open ]]
