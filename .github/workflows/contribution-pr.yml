@@ -7,8 +7,12 @@ on:
         type: choice
         options:
           - create
+          - edit-description
           - replace-10905-with-11088
         required: true
+      pr_number:
+        description: Open PR number (for edit-description)
+        type: string
       branch:
         description: Branch in this fork (for create)
         type: string
@@ -16,7 +20,7 @@ on:
         description: PR title (for create)
         type: string
       description:
-        description: Contribution details and checks (for create)
+        description: Contribution details and checks (for create or edit-description)
         type: string
 
 permissions: {}
@@ -33,6 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PNP_GITHUB_TOKEN }}
           OPERATION: ${{ inputs.operation }}
+          PR_NUMBER: ${{ inputs.pr_number }}
           BRANCH: ${{ inputs.branch }}
           TITLE: ${{ inputs.title }}
           DETAILS: ${{ inputs.description }}
@@ -41,6 +46,14 @@ jobs:
           set -euo pipefail
           [[ "$(gh api user --jq .login)" == Jorgitou98 ]]
           pulls="repos/$UPSTREAM/pulls"
+          if [[ "$OPERATION" == edit-description ]]; then
+            [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ && -n "$DETAILS" ]]
+            gh api "$pulls/$PR_NUMBER" | jq -e '
+              .user.login == "Jorgitou98" and .head.repo.full_name == "Jorgitou98/pequalnp-proofs"
+              and .base.ref == "main" and .state == "open"' > /dev/null
+            gh api --method PATCH "$pulls/$PR_NUMBER" -f body="$DETAILS" --jq .html_url
+            exit 0
+          fi
           if [[ "$OPERATION" == create ]]; then
             [[ -n "$TITLE" && -n "$DETAILS" ]]
             git check-ref-format "refs/heads/$BRANCH"
@@ -49,8 +62,7 @@ jobs:
               echo "$existing"
               exit 0
             fi
-            body=$(printf '%s\n\n**GitHub handle**: @Jorgitou98\n**LinkedIn profile**: https://www.linkedin.com/in/jorge-villarrubia-elvira/\n' "$DETAILS")
-            gh api --method POST "$pulls" -f head="Jorgitou98:$BRANCH" -f base=main -f title="$TITLE" -f body="$body" --jq .html_url
+            gh api --method POST "$pulls" -f head="Jorgitou98:$BRANCH" -f base=main -f title="$TITLE" -f body="$DETAILS" --jq .html_url
             exit 0
           fi
 
